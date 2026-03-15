@@ -2,32 +2,26 @@ package fr.ethanmanchon.superdim
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.view.View
-import android.view.WindowManager
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
-    private var overlayView: View? = null
-    private var windowManager: WindowManager? = null
-    private var isOverlayActive = false
+    private var isServiceRunning = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-
         findViewById<SeekBar>(R.id.seekBarOpacity).setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                updateOverlayOpacity(progress)
+                if (isServiceRunning) {
+                    updateOverlayOpacity(progress)
+                }
             }
 
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
@@ -35,12 +29,12 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        findViewById<View>(R.id.buttonToggle).setOnClickListener {
-            if (isOverlayActive) {
-                removeOverlay()
+        findViewById<android.view.View>(R.id.buttonToggle).setOnClickListener {
+            if (isServiceRunning) {
+                stopOverlayService()
             } else {
                 if (Settings.canDrawOverlays(this)) {
-                    createOverlay()
+                    startOverlayService()
                 } else {
                     requestOverlayPermission()
                 }
@@ -48,36 +42,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun createOverlay() {
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                WindowManager.LayoutParams.TYPE_SYSTEM_ALERT
-            },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        )
-
-        overlayView = View(this).apply {
-            setBackgroundColor(Color.argb(150, 0, 0, 0))
+    private fun startOverlayService() {
+        val opacity = findViewById<SeekBar>(R.id.seekBarOpacity).progress
+        val intent = Intent(this, OverlayService::class.java).apply {
+            putExtra("opacity", opacity)
         }
-
-        windowManager?.addView(overlayView, params)
-        isOverlayActive = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        isServiceRunning = true
         Toast.makeText(this, "Overlay activé", Toast.LENGTH_SHORT).show()
     }
 
-    private fun removeOverlay() {
-        windowManager?.removeView(overlayView)
-        isOverlayActive = false
+    private fun stopOverlayService() {
+        stopService(Intent(this, OverlayService::class.java))
+        isServiceRunning = false
         Toast.makeText(this, "Overlay désactivé", Toast.LENGTH_SHORT).show()
     }
 
     private fun updateOverlayOpacity(opacity: Int) {
-        overlayView?.setBackgroundColor(Color.argb(opacity, 0, 0, 0))
+        val intent = Intent(this, OverlayService::class.java).apply {
+            putExtra("opacity", opacity)
+        }
+        stopService(Intent(this, OverlayService::class.java))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
     }
 
     private fun requestOverlayPermission() {
@@ -89,7 +83,7 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 0) {
             if (Settings.canDrawOverlays(this)) {
-                createOverlay()
+                startOverlayService()
             } else {
                 Toast.makeText(this, "Permission refusée", Toast.LENGTH_SHORT).show()
             }
